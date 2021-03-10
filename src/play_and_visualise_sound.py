@@ -33,12 +33,17 @@ CHUNK = 8192
 LANGUAGE = "FR"
 
 
-def draw_background(wav_file_name):
+def draw_background():
     """ draw helicohidal background """
+    figure = plt.figure(INPUT_NAME,
+                        figsize=(8, 6), dpi=100,
+                        facecolor='k', edgecolor='k')
+    figure.patch.set_facecolor("black")
+    plt.subplot(1, 2, 1)
     plt.xlim(-3, 3.)
     plt.ylim(-2, 2.)
     plt.axis('equal')
-    plt.title(wav_file_name, color="white")
+    plt.axis('off')
     point_number = 1000
     x_coordinates = list()
     y_coordinates = list()
@@ -73,7 +78,7 @@ def draw_background(wav_file_name):
                  horizontalalignment='center',
                  verticalalignment='center',
                  color="white")
-    plt.axis('off')
+    return figure
 
 
 def compute_maxima_in_spectrum(frequencies, a_spectrum):
@@ -87,6 +92,21 @@ def compute_maxima_in_spectrum(frequencies, a_spectrum):
             possible_maxima.append([a_frequency,
                                     a_spectrum[a_possible_index]])
     return possible_maxima
+
+
+def compute_shine(frequencies, a_spectrum):
+    """ compute sound shine from spectrum """
+    shine = 0.
+    value_sum = 0.
+    for index in range(len(frequencies)):
+        a_frequency = frequencies[index]
+        if a_frequency > 20. and a_frequency < 3000.:
+            a_value = a_spectrum[index] ** 2
+            value_sum += a_value
+            shine += a_frequency * a_value
+    shine /= value_sum
+    shine = math.log(shine)
+    return shine
 
 
 def compute_helicoidal_coordinates(spectrum_maxima, diapason):
@@ -112,18 +132,21 @@ def compute_helicoidal_coordinates(spectrum_maxima, diapason):
     return x_coordinates, y_coordinates, z_coordinates
 
 
-def animate(index, animation_time, graph):
+def animate(index, animation_time,
+            graph_snail,
+            graph_amplitude,
+            graph_shine):
     """ function used to refresh animation """
     if F_ID != None:
         data = F_ID.readframes(CHUNK)
     else:
         data = AUDIO_STREAM.read(CHUNK)
-    numpydata = numpy.frombuffer(data, dtype=numpy.int16)
+    numpydata = numpy.frombuffer(data, dtype=numpy.int32)
     if numpy.shape(numpydata)[0] == 0:
         AUDIO_STREAM.stop_stream()
         AUDIO_STREAM.close()
         PY_AUDIO.terminate()
-        return graph
+        return graph_snail
     average = numpy.average(numpydata)
     amplitude = 1. * numpy.linalg.norm(numpydata - average) \
                 / numpy.shape(numpydata)
@@ -149,15 +172,35 @@ def animate(index, animation_time, graph):
         ratio = 1. / max(z_list)
     else:
         ratio = 1.
-    graph.set_array(ratio * numpy.array(z_list))
+    graph_snail.set_array(ratio * numpy.array(z_list))
     offset_array = numpy.zeros((len(x_list), 2))
     offset_array[:, 0] = x_list
     offset_array[:, 1] = y_list
-    graph.set_offsets(offset_array)
+    graph_snail.set_offsets(offset_array)
     amplitudes = amplitude * 250. * numpy.array(z_list)
-    graph.set_sizes(amplitudes)
+    graph_snail.set_sizes(amplitudes)
     animation_time += duration
-    return graph,
+
+    amplitude_list = list(graph_amplitude.get_data()[1])
+    shine_list = list(graph_shine.get_data()[1])
+    sampling_ratio = 10
+    sampling_memory = 10.
+    length = int((sampling_memory - 1.) * CHUNK / float(sampling_ratio))
+    if len(amplitude_list) > length:
+        amplitude_list = amplitude_list[int(CHUNK / float(sampling_ratio)):]
+        shine_list = shine_list[int(CHUNK / float(sampling_ratio)):]
+    shine = compute_shine(frequencies, a_spectrum)
+    for index in range(len(numpydata)):
+        if index % sampling_ratio == 0:
+            amplitude_list.append(abs(numpydata[index] / 2.**32))
+            shine_list.append(shine / 22000.)
+    x_list = list()
+    for index in range(len(amplitude_list)):
+        x_list.append(1. * index / (len(amplitude_list) - 1.))
+    graph_amplitude.set_data(x_list, amplitude_list)
+    graph_shine.set_data(x_list, shine_list)
+    print(animation_time, shine)
+    return graph_snail, graph_amplitude, graph_shine,
 
 
 def update_diapason_slider(val):
@@ -194,16 +237,28 @@ def init_audio_stream():
 if __name__ == "__main__":
     PY_AUDIO = pyaudio.PyAudio()
     AUDIO_STREAM, F_ID, INPUT_NAME = init_audio_stream()
-    FIGURE = plt.figure()
-    FIGURE.patch.set_facecolor("black")
-    draw_background(INPUT_NAME)
-    GRAPH = plt.scatter([], [], cmap='RdPu', alpha=0.5)
+    FIGURE = draw_background()
+    GRAPH_SNAIL = plt.scatter([], [], cmap='RdPu', alpha=0.5)
+    sub_figure_2 = plt.subplot(6, 2, 12)
+    sub_figure_2.patch.set_facecolor("black")
+    plt.xlim(0., 1.)
+    plt.ylim(0., 1.)
+    GRAPH_AMPLITUDE, = plt.plot([], [], "--", color="grey", linewidth=0.2)
+    sub_figure_3 = plt.subplot(6, 2, 10)
+    sub_figure_3.patch.set_facecolor("black")
+    plt.xlim(0., 1.)
+    plt.ylim(0., 1.)
+    GRAPH_SHINE, = plt.plot([], [], "-", color="yellow", linewidth=0.2)
     ANIMATION_TIME = 0.
 
+    y_list = list()
     MY_ANIMATION = animation.FuncAnimation(FIGURE, animate,
                                            frames=None, blit=True,
                                            interval=0, repeat=False,
-                                           fargs=(ANIMATION_TIME, GRAPH))
+                                           fargs=(ANIMATION_TIME,
+                                                  GRAPH_SNAIL,
+                                                  GRAPH_AMPLITUDE,
+                                                  GRAPH_SHINE))
 
     matplotlib.rcParams["text.color"] = "grey"
     matplotlib.rcParams["font.size"] = 6
