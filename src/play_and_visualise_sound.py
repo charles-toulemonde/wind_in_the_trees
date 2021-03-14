@@ -132,8 +132,40 @@ def compute_helicoidal_coordinates(spectrum_maxima, diapason):
     return x_coordinates, y_coordinates, z_coordinates
 
 
+def update_amplitude_and_shine(numpydata,
+                               frequencies, a_spectrum,
+                               graph_amplitude, graph_shine):
+    """ update amplitude and shine gramphs """
+    amplitude_list = list(graph_amplitude.get_data()[1])
+    shine_list = list(graph_shine.get_data()[1])
+    sampling_ratio = 10
+    sampling_memory = 10.
+    length = int((sampling_memory - 1.) * CHUNK / float(sampling_ratio))
+    if len(amplitude_list) > length:
+        amplitude_list = amplitude_list[int(CHUNK / float(sampling_ratio)):]
+        shine_list = shine_list[int(CHUNK / float(sampling_ratio)):]
+    shine = compute_shine(frequencies, a_spectrum)
+    sign = 1.
+    if len(shine_list) > 0:
+        max_shine = max(shine_list)
+    else:
+        max_shine = 100.
+    for index in range(len(numpydata)):
+        if index % sampling_ratio == 0:
+            amplitude_list.append(sign * abs(numpydata[index] / 2.**32))
+            shine_list.append(shine / 10.)
+            sign = -sign
+    x_list = list()
+    for index in range(len(amplitude_list)):
+        x_list.append(1. * index / (len(amplitude_list) - 1.))
+    graph_amplitude.set_data(x_list, amplitude_list)
+    graph_shine.set_data(x_list, shine_list)
+    return graph_amplitude, graph_shine 
+
+
 def animate(index, animation_time,
             graph_snail,
+            graph_snail_old,
             graph_amplitude,
             graph_shine):
     """ function used to refresh animation """
@@ -172,6 +204,17 @@ def animate(index, animation_time,
         ratio = 1. / max(z_list)
     else:
         ratio = 1.
+    old_array = graph_snail.get_array()
+    old_offsets = graph_snail.get_offsets()
+    old_sizes = graph_snail.get_sizes()
+    graph_snail_old.set_array(old_array)
+    graph_snail_old.set_offsets(old_offsets)
+    graph_snail_old.set_sizes(old_sizes)
+    try :
+        print(len(old_array))
+        print(old_array)
+    except TypeError:
+        print(0)
     graph_snail.set_array(ratio * numpy.array(z_list))
     offset_array = numpy.zeros((len(x_list), 2))
     offset_array[:, 0] = x_list
@@ -179,28 +222,14 @@ def animate(index, animation_time,
     graph_snail.set_offsets(offset_array)
     amplitudes = amplitude * 250. * numpy.array(z_list)
     graph_snail.set_sizes(amplitudes)
+
+    graph_amplitude, graph_shine = update_amplitude_and_shine(
+                                        numpydata,
+                                        frequencies, a_spectrum,
+                                        graph_amplitude, graph_shine)
     animation_time += duration
 
-    amplitude_list = list(graph_amplitude.get_data()[1])
-    shine_list = list(graph_shine.get_data()[1])
-    sampling_ratio = 10
-    sampling_memory = 10.
-    length = int((sampling_memory - 1.) * CHUNK / float(sampling_ratio))
-    if len(amplitude_list) > length:
-        amplitude_list = amplitude_list[int(CHUNK / float(sampling_ratio)):]
-        shine_list = shine_list[int(CHUNK / float(sampling_ratio)):]
-    shine = compute_shine(frequencies, a_spectrum)
-    for index in range(len(numpydata)):
-        if index % sampling_ratio == 0:
-            amplitude_list.append(abs(numpydata[index] / 2.**32))
-            shine_list.append(shine / 22000.)
-    x_list = list()
-    for index in range(len(amplitude_list)):
-        x_list.append(1. * index / (len(amplitude_list) - 1.))
-    graph_amplitude.set_data(x_list, amplitude_list)
-    graph_shine.set_data(x_list, shine_list)
-    print(animation_time, shine)
-    return graph_snail, graph_amplitude, graph_shine,
+    return graph_snail, graph_snail_old, graph_amplitude, graph_shine,
 
 
 def update_diapason_slider(val):
@@ -238,11 +267,12 @@ if __name__ == "__main__":
     PY_AUDIO = pyaudio.PyAudio()
     AUDIO_STREAM, F_ID, INPUT_NAME = init_audio_stream()
     FIGURE = draw_background()
-    GRAPH_SNAIL = plt.scatter([], [], cmap='RdPu', alpha=0.5)
+    GRAPH_SNAIL_OLD = plt.scatter([], [], cmap='RdPu', alpha=0.5)
+    GRAPH_SNAIL = plt.scatter([], [], cmap='RdPu', alpha=1.)
     sub_figure_2 = plt.subplot(6, 2, 12)
     sub_figure_2.patch.set_facecolor("black")
     plt.xlim(0., 1.)
-    plt.ylim(0., 1.)
+    plt.ylim(-1., 1.)
     GRAPH_AMPLITUDE, = plt.plot([], [], "--", color="grey", linewidth=0.2)
     sub_figure_3 = plt.subplot(6, 2, 10)
     sub_figure_3.patch.set_facecolor("black")
@@ -257,6 +287,7 @@ if __name__ == "__main__":
                                            interval=0, repeat=False,
                                            fargs=(ANIMATION_TIME,
                                                   GRAPH_SNAIL,
+                                                  GRAPH_SNAIL_OLD,
                                                   GRAPH_AMPLITUDE,
                                                   GRAPH_SHINE))
 

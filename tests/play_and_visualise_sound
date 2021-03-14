@@ -1,0 +1,2 @@
+#!/bin/bash
+python3 ../src/play_and_visualise_sound.py $1
