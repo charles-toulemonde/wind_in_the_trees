@@ -40,8 +40,8 @@ def draw_background():
                         facecolor='k', edgecolor='k')
     figure.patch.set_facecolor("black")
     plt.subplot(1, 2, 1)
-    plt.xlim(-3, 3.)
-    plt.ylim(-2, 2.)
+    plt.xlim(-2., 2.)
+    plt.ylim(-2., 2.)
     plt.axis('equal')
     plt.axis('off')
     point_number = 1000
@@ -78,6 +78,29 @@ def draw_background():
                  horizontalalignment='center',
                  verticalalignment='center',
                  color="white")
+    plt.subplot(3, 2, 2)
+    plt.xlim(-2., 2.)
+    plt.ylim(-2., 2.)
+    plt.axis('equal')
+    plt.axis('off')
+    for index in range(12):
+        ratio = (1. * index) / 12.
+        angle = 2. * math.pi * ratio
+        radius = 1.6
+        x_coordinates = [0.]
+        y_coordinates = [0.]
+        x_coordinates.append(radius * math.sin(angle))
+        y_coordinates.append(radius * math.cos(angle))
+        plt.plot(x_coordinates, y_coordinates,
+                 "-", color="grey", linewidth=0.4)
+        radius = 1.7
+        x_coordinate = radius * math.sin(angle)
+        y_coordinate = radius * math.cos(angle)
+        plt.text(x_coordinate, y_coordinate,
+                 notes[index], fontsize=8,
+                 horizontalalignment='center',
+                 verticalalignment='center',
+                 color="white")
     return figure
 
 
@@ -91,7 +114,27 @@ def compute_maxima_in_spectrum(frequencies, a_spectrum):
             a_frequency = frequencies[a_possible_index]
             possible_maxima.append([a_frequency,
                                     a_spectrum[a_possible_index]])
-    return possible_maxima
+    possible_notes = list()
+    maximum_note = 0.
+    for a_maximum in possible_maxima:
+        a_frequency = a_maximum[0]
+        if a_frequency > 50:
+            while a_frequency >= 440.:
+                a_frequency /= 2.
+            while a_frequency <= 220.:
+                a_frequency *= 2.
+            possible_notes.append([a_frequency, a_maximum[1]])
+            if a_maximum[1] > maximum_note:
+                maximum_note = a_maximum[1]
+    notes = list()
+    for a_possible_note in possible_notes:
+        if a_possible_note[1] > (0.05 * maximum_note):
+            index = 12. * math.log(a_possible_note[0] / 220.) / math.log(2.)
+            index = round(index) # shift by -3 for saxophones
+            note_frequency = 220. * 2. ** (index / 12.)
+            notes.append([note_frequency,
+                          a_possible_note[1] / maximum_note])
+    return possible_maxima, notes
 
 
 def compute_shine(frequencies, a_spectrum):
@@ -109,7 +152,7 @@ def compute_shine(frequencies, a_spectrum):
     return shine
 
 
-def compute_helicoidal_coordinates(spectrum_maxima, diapason):
+def compute_helicoidal_coordinates(spectrum_maxima, notes, diapason):
     """ convert maxima to helicoidal coordinates """
     x_coordinates = list()
     y_coordinates = list()
@@ -129,7 +172,25 @@ def compute_helicoidal_coordinates(spectrum_maxima, diapason):
             x_coordinates.append(x_coordinate)
             y_coordinates.append(y_coordinate)
             z_coordinates.append(an_amplitude)
-    return x_coordinates, y_coordinates, z_coordinates
+    x_coordinates_notes = list()
+    y_coordinates_notes = list()
+    z_coordinates_notes = list()
+    for a_note in notes:
+        a_frequency = a_note[0]
+        an_amplitude = a_note[1]
+        normalised_frequency = a_frequency / diapason
+        condition_1 = (normalised_frequency >= 2 ** (-OCTAVE_BELOW))
+        condition_2 = (normalised_frequency <= 2 ** (OCTAVE_ABOVE))
+        if condition_1 and condition_2:
+            normalised_angle = math.log(normalised_frequency) / math.log(2.)
+            angle = 2. * math.pi * normalised_angle
+            radius = 1.
+            x_coordinate = radius * math.sin(angle)
+            y_coordinate = radius * math.cos(angle)
+            x_coordinates_notes.append(x_coordinate)
+            y_coordinates_notes.append(y_coordinate)
+            z_coordinates_notes.append(an_amplitude)
+    return x_coordinates, y_coordinates, z_coordinates, x_coordinates_notes, y_coordinates_notes, z_coordinates_notes
 
 
 def update_amplitude_and_shine(numpydata,
@@ -164,10 +225,8 @@ def update_amplitude_and_shine(numpydata,
 
 
 def animate(index, animation_time,
-            graph_snail,
-            graph_snail_old,
-            graph_amplitude,
-            graph_shine):
+            graph_snail_0, graph_snail_1, graph_snail_2, graph_snail_3,
+            graph_notes, graph_amplitude, graph_shine):
     """ function used to refresh animation """
     if F_ID != None:
         data = F_ID.readframes(CHUNK)
@@ -196,40 +255,43 @@ def animate(index, animation_time,
         amplitude = 1.
     a_spectrum = (1. / max(a_spectrum)) * a_spectrum
     frequencies = (1. / duration) * numpy.array(range(a_spectrum.shape[0]))
-    spectrum_maxima = compute_maxima_in_spectrum(frequencies,
-                                                 a_spectrum)
-    x_list, y_list, z_list = compute_helicoidal_coordinates(
-        spectrum_maxima, DIAPASON)
+    spectrum_maxima, notes = compute_maxima_in_spectrum(
+                                                    frequencies, a_spectrum)
+    x_list, y_list, z_list, x_list_notes, y_list_notes, z_list_notes = compute_helicoidal_coordinates(
+        spectrum_maxima, notes, DIAPASON)
     if len(z_list) > 0:
         ratio = 1. / max(z_list)
     else:
         ratio = 1.
-    old_array = graph_snail.get_array()
-    old_offsets = graph_snail.get_offsets()
-    old_sizes = graph_snail.get_sizes()
-    graph_snail_old.set_array(old_array)
-    graph_snail_old.set_offsets(old_offsets)
-    graph_snail_old.set_sizes(old_sizes)
-    try :
-        print(len(old_array))
-        print(old_array)
-    except TypeError:
-        print(0)
-    graph_snail.set_array(ratio * numpy.array(z_list))
+    graph_snail_0.set_array(graph_snail_1.get_array())
+    graph_snail_0.set_offsets(graph_snail_1.get_offsets())
+    graph_snail_0.set_sizes(graph_snail_1.get_sizes())
+    graph_snail_1.set_array(graph_snail_2.get_array())
+    graph_snail_1.set_offsets(graph_snail_2.get_offsets())
+    graph_snail_1.set_sizes(graph_snail_2.get_sizes())
+    graph_snail_2.set_array(graph_snail_3.get_array())
+    graph_snail_2.set_offsets(graph_snail_3.get_offsets())
+    graph_snail_2.set_sizes(graph_snail_3.get_sizes())
+    graph_snail_3.set_array(ratio * numpy.array(z_list))
     offset_array = numpy.zeros((len(x_list), 2))
     offset_array[:, 0] = x_list
     offset_array[:, 1] = y_list
-    graph_snail.set_offsets(offset_array)
+    offset_array_notes = numpy.zeros((len(x_list_notes), 2))
+    offset_array_notes[:, 0] = x_list_notes
+    offset_array_notes[:, 1] = y_list_notes
+    graph_snail_3.set_offsets(offset_array)
     amplitudes = amplitude * 250. * numpy.array(z_list)
-    graph_snail.set_sizes(amplitudes)
-
+    graph_snail_3.set_sizes(amplitudes)
+    graph_notes.set_array(numpy.ones(len(z_list_notes)))
+    graph_notes.set_offsets(offset_array_notes)
+    graph_notes.set_sizes(50. * numpy.ones(len(z_list_notes)))
     graph_amplitude, graph_shine = update_amplitude_and_shine(
                                         numpydata,
                                         frequencies, a_spectrum,
                                         graph_amplitude, graph_shine)
     animation_time += duration
 
-    return graph_snail, graph_snail_old, graph_amplitude, graph_shine,
+    return graph_snail_0, graph_snail_1, graph_snail_2, graph_snail_3, graph_notes, graph_amplitude, graph_shine,
 
 
 def update_diapason_slider(val):
@@ -267,8 +329,14 @@ if __name__ == "__main__":
     PY_AUDIO = pyaudio.PyAudio()
     AUDIO_STREAM, F_ID, INPUT_NAME = init_audio_stream()
     FIGURE = draw_background()
-    GRAPH_SNAIL_OLD = plt.scatter([], [], cmap='RdPu', alpha=0.5)
-    GRAPH_SNAIL = plt.scatter([], [], cmap='RdPu', alpha=1.)
+    GRAPHS_SNAIL = list()
+    plt.subplot(1, 2, 1)
+    GRAPHS_SNAIL.append(plt.scatter([], [], cmap='RdPu', alpha=0.125))
+    GRAPHS_SNAIL.append(plt.scatter([], [], cmap='RdPu', alpha=0.25))
+    GRAPHS_SNAIL.append(plt.scatter([], [], cmap='RdPu', alpha=0.5))
+    GRAPHS_SNAIL.append(plt.scatter([], [], cmap='RdPu', alpha=1.))
+    plt.subplot(3, 2, 2)
+    GRAPH_NOTES = plt.scatter([], [], cmap='RdPu', alpha=1.)
     sub_figure_2 = plt.subplot(6, 2, 12)
     sub_figure_2.patch.set_facecolor("black")
     plt.xlim(0., 1.)
@@ -286,8 +354,11 @@ if __name__ == "__main__":
                                            frames=None, blit=True,
                                            interval=0, repeat=False,
                                            fargs=(ANIMATION_TIME,
-                                                  GRAPH_SNAIL,
-                                                  GRAPH_SNAIL_OLD,
+                                                  GRAPHS_SNAIL[0],
+                                                  GRAPHS_SNAIL[1],
+                                                  GRAPHS_SNAIL[2],
+                                                  GRAPHS_SNAIL[3],
+                                                  GRAPH_NOTES,
                                                   GRAPH_AMPLITUDE,
                                                   GRAPH_SHINE))
 
